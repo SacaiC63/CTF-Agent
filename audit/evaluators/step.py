@@ -1,0 +1,354 @@
+"""评估点 2：执行步骤验收 Agent。
+
+一个逻辑步骤由 ``tool_call + tool_result`` 构成。离线规则根据成功、重复和证据
+决定 pass/retry/escalate；在线模式逐步骤调用 AgentEvals，并保留确定性状态约束。
+任何在线异常都只影响当前评估器，不能中断 CTF 任务或整批审计。
+"""
+
+import json
+from typing import Any, Dict, List, Optional, Tuple
+
+from agent import llm_api
+
+from ..integrations.langsmith_logger import redact
+from ..integrations.llm_chat import LlmApiAgentEvalsClient
+from ..schemas import (
+    CTFAttempt,
+    StepEvaluation,
+    StepEvaluationItem,
+    StepKind,
+    TrajectoryStep,
+)
+from ..settings import Settings
+
+
+STEP_PROMPT = """你是步骤验收 Agent。验收执行 Agent 对当前步骤的产出是否达成验收标准。
+
+【可用的上下文】
+- 任务：题面原文与目标列表（Task）
+- 当前步骤：instruction / criterion / status / attempts（Dag）
+- 提交判定：已提交 flag 的平台判定（correct=true 表示该步产出已被平台确认）
+- 本轮评估意见：前置非 pass 意见（AgentComm）
+- 执行历史：已完成的步骤轨迹（History）
+
+【验收依据】
+- observation：执行 Agent 本轮的实际输出（是否达成 criterion）
+- submission：提交 flag 的判定（如已提交）
+- 前置评估意见与历史轨迹
+
+【输出】
+- pass：步骤达成，进入下一目标；若 correct=true 判定任务完成（is_completed）
+- retry：未达成但有修复空间，返回执行重试
+- escalate：证据不足 / 无法达成，升级触发任务反思
+- 不解题、不猜 flag；基于证据给出 verdict + opinion
+
+【轨迹】
+{outputs}
+
+对上述轨迹给出 0..1 的过程质量分与说明。只返回一个 JSON 对象，字段如下：
+{{"score": 0..1 的过程质量分, "verdict": "pass|retry|escalate", "diagnosis": "incomplete|drift|planner_target|other", "is_completed": true|false, "opinion": "验收意见"}}
+- verdict 是步骤验收结果；opinion 是验收意见（理由文本，不得留空）。
+- is_completed 是"任务整体达成"信号（仅核心目标已达成时 true，单步 pass 默认 false）。
+不要输出 JSON 之外的任何内容。"""
+
+
+def _sum_usage(usage_log: List[dict]) -> Dict[str, int] | None:
+    if not usage_log:
+        return None
+    total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    for item in usage_log:
+        total["prompt_tokens"] += int(item.get("prompt_tokens", 0))
+        total["completion_tokens"] += int(item.get("completion_tokens", 0))
+        total["total_tokens"] += int(item.get("total_tokens", 0))
+    return total
+
+
+class StepAcceptanceEvaluator:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._cached_online_evaluator: Any = None
+        self._online_disabled_reasons: Dict[str, str] = {}
+        self.last_usage: Optional[Dict[str, int]] = None
+
+    def begin_attempt(self, attempt_id: str) -> None:
+        """开始任务时清除该任务遗留的熔断状态。"""
+        self._online_disabled_reasons.pop(attempt_id, None)
+
+    def end_attempt(self, attempt_id: str) -> None:
+        """任务完成或中止时释放该任务的在线降级状态。"""
+        self._online_disabled_reasons.pop(attempt_id, None)
+
+    async def evaluate(self, attempt: CTFAttempt) -> StepEvaluation:
+        """批量兼容入口；事件驱动 pipeline 使用 evaluate_step。"""
+        pairs = self.pairs(attempt)
+        seen = set()
+        items: List[StepEvaluationItem] = []
+        step_ids = list(attempt.metadata.get("external_step_ids", []))
+
+        for position, (call, result) in enumerate(pairs):
+            signature = (
+                call.tool_name or "",
+                json.dumps(call.tool_args, sort_keys=True, ensure_ascii=False),
+            )
+            repeated = signature in seen
+            seen.add(signature)
+            step_id = (
+                str(step_ids[position])
+                if position < len(step_ids)
+                else "step-%d" % (position + 1)
+            )
+            items.append(
+                await self.evaluate_step(
+                    attempt,
+                    call,
+                    result,
+                    step_id,
+                    repeated,
+                    position,
+                )
+            )
+        return self.summarize(items)
+
+    async def evaluate_step(
+        self,
+        attempt: CTFAttempt,
+        call: TrajectoryStep,
+        result: Optional[TrajectoryStep],
+        step_id: str,
+        repeated: bool = False,
+        position: int = 0,
+        ctx: str = "",
+    ) -> StepEvaluationItem:
+        """工具执行完成事件的即时验收入口，只评价当前这一个步骤。"""
+        if self.settings.mode == "offline":
+            score, evaluator, llm_reason = self._offline_score(call, result, repeated)
+        elif attempt.attempt_id in self._online_disabled_reasons:
+            # 前一个步骤已经证明在线链路不可用，本次直接降级并保留原始原因。
+            fallback_reason = self._online_disabled_reasons[attempt.attempt_id]
+            score, _, offline_reason = self._offline_score(call, result, repeated)
+            evaluator = "StepEvaluator/offline-rules (online-fallback:%s)" % fallback_reason
+            llm_reason = "%s；在线 AgentEvals 已熔断，继续降级：%s" % (
+                offline_reason,
+                fallback_reason,
+            )
+        else:
+            try:
+                online_evaluator = self._online_evaluator()
+                response = await online_evaluator(
+                    outputs=self._messages(attempt, call, result, position, ctx=ctx),
+                )
+                self.last_usage = _sum_usage(llm_api.pop_token_log())
+                score = self._response_score(response)
+                evaluator = "AgentEvals/LlmApi"
+                llm_reason = self._response_reason(response)
+            except Exception as exc:  # 第三方 SDK/API 失败必须降级，不能终止任务。
+                print("\n[StepEvaluator ONLINE ERROR]")
+                print("type:", type(exc).__name__)
+                print("message:", repr(str(exc)))
+                print("repr:", repr(exc))
+                fallback_reason = self._error_label(exc)
+                self._online_disabled_reasons[attempt.attempt_id] = fallback_reason
+                score, _, offline_reason = self._offline_score(call, result, repeated)
+                evaluator = "StepEvaluator/offline-rules (online-fallback:%s)" % fallback_reason
+                llm_reason = "%s；在线 AgentEvals 失败，已降级：%s" % (
+                    offline_reason,
+                    fallback_reason,
+                )
+
+        success = None if result is None else result.success
+        observed_text = call.content + " " + (result.content if result else "")
+        suspicious_guess = "guess" in observed_text.lower()
+        if success is True and score >= 0.6:
+            decision = "pass"
+        elif success is False and (repeated or suspicious_guess or score < 0.15):
+            decision = "escalate"
+        else:
+            decision = "retry"
+        return StepEvaluationItem(
+            step_id=str(step_id),
+            decision=decision,
+            score=round(score, 4),
+            tool=call.tool_name or "unknown_tool",
+            success=success,
+            reasoning=self._reason(
+                decision,
+                success,
+                repeated,
+                suspicious_guess,
+                llm_reason,
+            ),
+            evaluator=evaluator,
+        )
+
+    @staticmethod
+    def summarize(items: List[StepEvaluationItem]) -> StepEvaluation:
+        """任务结束时只做统计，不重新调用任何步骤 evaluator。"""
+        normalized = list(items)
+        if not normalized:
+            normalized.append(
+                StepEvaluationItem(
+                    step_id="no-step",
+                    decision="escalate",
+                    score=0.0,
+                    tool="none",
+                    success=None,
+                    reasoning="没有可验收的 tool_call/tool_result",
+                    evaluator="StepEvaluator/offline-rules",
+                )
+            )
+        online = any(item.evaluator == "AgentEvals/LlmApi" for item in normalized)
+        fallback = any("online-fallback:" in item.evaluator for item in normalized)
+        if online and fallback:
+            evaluator = "AgentEvals/LlmApi + offline-fallback"
+        elif online:
+            evaluator = "AgentEvals/LlmApi"
+        elif fallback:
+            evaluator = "StepEvaluator/offline-rules (online-fallback)"
+        else:
+            evaluator = "StepEvaluator/offline-rules"
+        return StepEvaluation(
+            score=round(sum(item.score for item in normalized) / len(normalized), 4),
+            pass_count=sum(item.decision == "pass" for item in normalized),
+            retry_count=sum(item.decision == "retry" for item in normalized),
+            escalate_count=sum(item.decision == "escalate" for item in normalized),
+            items=normalized,
+            evaluator=evaluator,
+        )
+
+    def _online_evaluator(self) -> Any:
+        if self._cached_online_evaluator is not None:
+            return self._cached_online_evaluator
+        try:
+            from agent import llm_api as _llm_api
+            _llm_api.resolve_key()
+        except Exception as exc:
+            raise RuntimeError("MissingLLMApiKey") from exc
+        try:
+            from agentevals.trajectory.llm import create_async_trajectory_llm_as_judge
+        except ImportError as exc:
+            raise RuntimeError("AgentEvalsNotInstalled") from exc
+        judge = LlmApiAgentEvalsClient(role="evaluator_step")
+        self._cached_online_evaluator = create_async_trajectory_llm_as_judge(
+            prompt=STEP_PROMPT,
+            judge=judge,
+            model=_llm_api.role_model("evaluator_step"),
+            continuous=True,
+        )
+        return self._cached_online_evaluator
+
+    @staticmethod
+    def _response_score(response: Any) -> float:
+        if not isinstance(response, dict):
+            raise ValueError("AgentEvalsInvalidResponse")
+        score = float(response.get("score", 0.0))
+        return max(0.0, min(1.0, score))
+
+    @staticmethod
+    def _response_reason(response: Dict[str, Any]) -> str:
+        return str(response.get("opinion") or response.get("comment") or response.get("reasoning") or "")
+
+    @staticmethod
+    def _error_label(exc: Exception) -> str:
+        """日志只记录稳定的异常类型，避免把 API 响应或密钥写入报告。"""
+        message = str(exc)
+        known_labels = ("MissingDeepSeekApiKey", "MissingLLMApiKey", "AgentEvalsNotInstalled")
+        if message in known_labels:
+            return message
+        return type(exc).__name__
+
+    @staticmethod
+    def pairs(
+        attempt: CTFAttempt,
+    ) -> List[Tuple[TrajectoryStep, Optional[TrajectoryStep]]]:
+        """公开给历史 JSON 回放器使用，不执行任何评价。"""
+        pairs: List[Tuple[TrajectoryStep, Optional[TrajectoryStep]]] = []
+        pending: Optional[TrajectoryStep] = None
+        for event in attempt.steps:
+            if event.kind == StepKind.TOOL_CALL:
+                if pending is not None:
+                    pairs.append((pending, None))
+                pending = event
+            elif event.kind == StepKind.TOOL_RESULT and pending is not None:
+                pairs.append((pending, event))
+                pending = None
+        if pending is not None:
+            pairs.append((pending, None))
+        return pairs
+
+    @staticmethod
+    def _offline_score(
+        call: TrajectoryStep,
+        result: Optional[TrajectoryStep],
+        repeated: bool,
+    ) -> Tuple[float, str, str]:
+        if result is None:
+            return 0.0, "StepEvaluator/offline-rules", "工具调用没有对应结果"
+        suspicious_guess = "guess" in (call.content + " " + result.content).lower()
+        if result.success is True:
+            return 0.9, "StepEvaluator/offline-rules", "工具执行成功并产生观察"
+        if result.success is False and (repeated or suspicious_guess):
+            return 0.05, "StepEvaluator/offline-rules", "失败步骤重复或基于猜测，应升级处理"
+        if result.success is False:
+            return 0.25, "StepEvaluator/offline-rules", "工具失败，可在修正策略后重试"
+        return 0.5, "StepEvaluator/offline-rules", "步骤状态未知，需要人工或额外证据"
+
+    @staticmethod
+    def _messages(
+        attempt: CTFAttempt,
+        call: TrajectoryStep,
+        result: Optional[TrajectoryStep],
+        position: int,
+        ctx: str = "",
+    ) -> List[Dict[str, Any]]:
+        call_id = "call_%s_%d" % (attempt.attempt_id, position)
+        problem = str(attempt.metadata.get("problem_statement", attempt.task_id))
+        user_content = f"{ctx}\n\n{problem}" if ctx else problem
+        messages: List[Dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": user_content,
+            },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": call.tool_name or "unknown_tool",
+                            "arguments": json.dumps(
+                                redact(call.tool_args),
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            },
+        ]
+        if result is not None:
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": redact(result.content),
+                }
+            )
+        return messages
+
+    @staticmethod
+    def _reason(
+        decision: str,
+        success: Optional[bool],
+        repeated: bool,
+        guess: bool,
+        detail: str,
+    ) -> str:
+        facts = ["decision=%s" % decision, "success=%s" % success]
+        if repeated:
+            facts.append("相同工具和参数已重复")
+        if guess:
+            facts.append("步骤包含无证据猜测")
+        if detail:
+            facts.append(detail)
+        return "；".join(facts)

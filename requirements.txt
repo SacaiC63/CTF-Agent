@@ -1,0 +1,9 @@
+openai>=1.0
+requests>=2
+pydantic>=2
+PyYAML>=6
+tiktoken>=0.7
+asyncssh>=2  # 真实沙箱运行时的异步 SSH/SFTP 后端
+paramiko>=3  # scripts/build_sandbox_image.py 镜像构建辅助脚本
+agentevals>=0.0.9  # audit online 模式的 trajectory LLM judge
+attachments[pdf,html,image] @ git+https://github.com/MaximeRivest/attachments.git@b58297792d46338836109d0e6037591d6c279906

@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>攻防 Agent 指令台</title>
+    <link rel="stylesheet" href="/styles.css?v=20260829-usage-views">
+  </head>
+  <body>
+    <section class="auth-gate" id="auth-gate">
+      <div class="auth-hero">
+        <p class="eyebrow">Offensive Agent Platform</p>
+        <h1>登录攻防作战中枢</h1>
+        <p>每个队伍拥有独立工作区、SSH 沙箱、模型用量、成果审核和复盘资产。登录后进入比赛控制台。</p>
+        <div class="auth-highlights">
+          <span>单任务独立可销毁沙箱</span>
+          <span>Agent 可解释执行</span>
+          <span>队伍权限与审计</span>
+        </div>
+      </div>
+      <div class="auth-card">
+        <h2>队伍身份入口</h2>
+        <label>队伍 / 用户名<input id="gate-user" type="text" value="demo-team" autocomplete="username"></label>
+        <label>密码<input id="gate-pass" type="password" value="demo123456" autocomplete="current-password"></label>
+        <div class="register-extra">
+          <label>队伍名称<input id="gate-team-name" type="text" placeholder="例如：BlueWhale RedTeam"></label>
+          <label>确认密码<input id="gate-pass-confirm" type="password" placeholder="再次输入密码"></label>
+          <label>邀请码（可选）<input id="gate-invite" type="text" placeholder="赛事邀请码 / Sponsor code"></label>
+        </div>
+        <div class="row">
+          <button type="button" id="btn-gate-login" class="primary">登录</button>
+          <button type="button" id="btn-gate-register">注册队伍</button>
+        </div>
+        <p class="hint" id="gate-status">本地演示登录，不上传凭据。</p>
+      </div>
+    </section>
+
+    <main class="page page-wizard hidden" id="app-shell">
+      <div class="wizard">
+        <nav class="wizard-nav" aria-label="功能模块导航">
+          <div class="nav-brand">
+            <p class="eyebrow">Competition Agent System</p>
+            <h1>攻防作战中枢</h1>
+            <p class="lede">面向攻防研判、队伍协同、证据沉淀与赞助展示的智能 Agent 控制台</p>
+          </div>
+          <div class="nav-ops">
+            <span>LIVE OPS</span>
+            <strong>赛事模式</strong>
+          </div>
+          <button type="button" class="wizard-nav-item active" data-step="model">
+            <span class="wizard-nav-index">01</span>
+            <span class="wizard-nav-label">战情总览</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="run">
+            <span class="wizard-nav-index">02</span>
+            <span class="wizard-nav-label">攻防任务接入</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="agents">
+            <span class="wizard-nav-index">03</span>
+            <span class="wizard-nav-label">Agent 工作区</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="audit">
+            <span class="wizard-nav-index">04</span>
+            <span class="wizard-nav-label">成果审核</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="history">
+            <span class="wizard-nav-index">05</span>
+            <span class="wizard-nav-label">赛后复盘</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="skills">
+            <span class="wizard-nav-index">06</span>
+            <span class="wizard-nav-label">技能镜像</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="experience">
+            <span class="wizard-nav-index">07</span>
+            <span class="wizard-nav-label">战术黑板</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="usage">
+            <span class="wizard-nav-index">08</span>
+            <span class="wizard-nav-label">模型用量</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="mcp">
+            <span class="wizard-nav-index">09</span>
+            <span class="wizard-nav-label">MCP 工具</span>
+          </button>
+          <button type="button" class="wizard-nav-item" data-step="user">
+            <span class="wizard-nav-index">10</span>
+            <span class="wizard-nav-label">用户管理</span>
+          </button>
+        </nav>
+
+        <div class="wizard-main">
+          <div class="topbar">
+            <div>
+              <p class="topbar-kicker">Offensive Agent Control Plane</p>
+              <strong>统一接入攻防任务、调度 Agent、沉淀证据与复盘资产</strong>
+            </div>
+            <div class="topbar-side">
+              <span class="live-toggle">5 秒自动刷新</span>
+              <span class="refresh-meta">本地指令台</span>
+              <button type="button" id="topbar-refresh" class="icon-button">刷新</button>
+              <span class="signed-in-user">demo-team <small>比赛队伍</small></span>
+              <button type="button" id="btn-logout" class="icon-button">退出</button>
+            </div>
+          </div>
+          <div class="wizard-stage">
+            <div class="wizard-step active" data-step="model" id="step-model">
+              <div class="step-heading">
+                <p class="section-kicker">Mission Control</p>
+                <h2 class="step-title">战情总览</h2>
+                <p class="step-desc">对标攻防智能体参考系统的系统概览：在线任务进度、单任务独立可销毁 SSH 沙箱、统一镜像、模型连接、执行链路和审核状态一屏可见。</p>
+                <div class="mission-grid">
+                  <article class="metric-card hot" data-tip-key="running" data-tip="来自 GET /api/runs 的 alive 任务数。"><span>运行中任务</span><strong id="dash-running">-</strong><small>由真实 run 状态实时聚合</small></article>
+                  <article class="metric-card" data-tip-key="queued" data-tip="来自 run phase/status 的排队任务数。"><span>排队中</span><strong id="dash-queued">-</strong><small>等待启动的真实任务</small></article>
+                  <article class="metric-card" data-tip-key="done" data-tip="当前时间窗口内状态为 DONE 的真实任务。"><span>已完成</span><strong id="dash-done">-</strong><small>来自 runs/ 状态账本</small></article>
+                  <article class="metric-card warn" data-tip-key="review" data-tip="已结束但尚无 correct=true 提交的任务。"><span>成果待审</span><strong id="dash-review">-</strong><small>以平台提交判定为准</small></article>
+                  <article class="metric-card hot" data-tip-key="accuracy" data-tip="按 submission correct=true / submission 总数计算。"><span>正确率</span><strong id="dash-accuracy">-</strong><small>真实平台提交通过率</small></article>
+                </div>
+              </div>
+              <section class="panel command-screen-panel">
+                <div class="command-screen-head">
+                  <div>
+                    <p class="panel-kicker">Live Competition Screen</p>
+                    <h2>赛事态势大屏</h2>
+                    <p class="panel-desc">数据来自 <code>/api/runs</code> 与每个任务的 <code>/events</code>，按日/周/月聚合任务、提交、模型 Tokens 和沙箱事件。</p>
+                  </div>
+                  <div class="screen-window-tabs" id="dashboard-window-tabs">
+                    <button type="button" class="active" data-window="day">今日</button>
+                    <button type="button" data-window="week">近 7 天</button>
+                    <button type="button" data-window="month">近 30 天</button>
+                  </div>
+                </div>
+                <div class="bigscreen-grid">
+                  <article class="chart-panel chart-wide" data-tip-key="throughput" data-tip="绿色为已解出任务，琥珀色为总尝试量；用于判断团队吞吐是否稳定。">
+                    <div class="chart-head"><span>攻防研判吞吐趋势</span><strong id="chart-throughput-label">近 7 天</strong></div>
+                    <canvas id="chart-throughput" width="900" height="260"></canvas>
+                  </article>
+                  <article class="chart-panel" data-tip-key="category" data-tip="展示当前时间窗口内各攻防场景占比，用于观察能力覆盖和任务偏科。">
+                    <div class="chart-head"><span>场景类型分布</span><strong>Category</strong></div>
+                    <canvas id="chart-category" width="420" height="260"></canvas>
+                  </article>
+                  <article class="chart-panel" data-tip-key="accuracy-chart" data-tip="柱状为提交量，红色折线为正确率；适合观察候选成果质量是否稳定。">
+                    <div class="chart-head"><span>正确率与提交量</span><strong>Accuracy</strong></div>
+                    <canvas id="chart-accuracy" width="420" height="260"></canvas>
+                  </article>
+                  <article class="chart-panel chart-wide" data-tip-key="usage" data-tip="绿色趋势表示模型 token 使用，琥珀趋势表示沙箱占用。">
+                    <div class="chart-head"><span>模型与沙箱使用</span><strong>Tokens / Pi Sandbox</strong></div>
+                    <canvas id="chart-usage" width="900" height="260"></canvas>
+                  </article>
+                  <article class="chart-panel" data-tip-key="funnel" data-tip="从候选口令到证据完整、审核通过、重规划的转化漏斗。">
+                    <div class="chart-head"><span>审核漏斗</span><strong>Evidence Review</strong></div>
+                    <div class="funnel-board">
+                      <div style="--w: 0%" data-tip-key="funnel-candidate" data-tip="events.jsonl 中的 submission 事件数。"><span>提交尝试</span><strong id="funnel-candidate">0</strong></div>
+                      <div style="--w: 0%" data-tip-key="funnel-evidence" data-tip="存在工具结果和步骤验收记录的提交任务。"><span>证据完整</span><strong id="funnel-evidence">0</strong></div>
+                      <div style="--w: 0%" data-tip-key="funnel-approved" data-tip="submission 事件中 correct=true 的数量。"><span>平台通过</span><strong id="funnel-approved">0</strong></div>
+                      <div style="--w: 0%" data-tip-key="funnel-replan" data-tip="events.jsonl 中的 replan 事件数。"><span>重规划</span><strong id="funnel-replan">0</strong></div>
+                    </div>
+                  </article>
+                </div>
+                <div id="dashboard-tooltip" class="dashboard-tooltip hidden"></div>
+              </section>
+              <section class="panel overview-wide">
+                <h2>在线任务与 SSH 沙箱</h2>
+                <div class="progress-board">
+                  <div class="progress-ring" id="overview-progress" style="--p: 0%"><strong id="overview-active">0</strong><span>活跃任务</span></div>
+                  <div class="queue-lanes">
+                    <div><span>RUNNING</span><strong id="overview-running">0</strong><small>正在攻防研判</small></div>
+                    <div><span>QUEUED</span><strong id="overview-queued">0</strong><small>等待启动</small></div>
+                    <div><span>DONE</span><strong id="overview-done">0</strong><small>已完成</small></div>
+                    <div><span>FAILED/PAUSED</span><strong id="overview-other">0</strong><small>失败或非活动中间态</small></div>
+                  </div>
+                  <div class="sandbox-list" id="overview-runtime">
+                    <div><strong>正在读取运行时</strong><span class="state-pill neutral">loading</span><small>数据来自 /api/sandbox/runtime</small></div>
+                  </div>
+                </div>
+              </section>
+              <section class="panel model-link-panel">
+                <h2>模型链接</h2>
+                <p class="panel-desc">管理模型网关；重新读取并检测当前模型、连接状态和检测时间。</p>
+                <label>BASE URL<input id="model-base-url" type="url" placeholder="http://host:port/v1" autocomplete="off"></label>
+                <label>模型名称<input id="model-name" type="text" placeholder="DS_R1_32b" autocomplete="off"></label>
+                <label>API Key<input id="model-api-key" type="password" placeholder="留空表示沿用已保存的 Key" autocomplete="off"></label>
+                <label class="checkbox">
+                  <input id="model-enable-tools" type="checkbox">
+                  启用 Planner 工具调用（get_doc）
+                </label>
+                <div class="row">
+                  <button type="button" id="btn-save-model" class="primary">管理模型</button>
+                  <button type="button" id="btn-reload-model">重新读取并检测</button>
+                </div>
+                <p class="hint" id="model-status">正在读取配置…</p>
+                <div class="status-grid">
+                  <div><span>当前检测模型</span><strong id="model-current">-</strong></div>
+                  <div><span>链接状态</span><strong id="model-key-set">-</strong></div>
+                  <div><span>检测时间</span><strong id="model-check-time">-</strong></div>
+                  <div><span>工具调用</span><strong id="model-tools-label">-</strong></div>
+                </div>
+              </section>
+              <section class="panel model-usage-panel">
+                <h2>模型用量速览</h2>
+                <div class="usage-bars">
+                  <div><span>Planner tokens</span><strong id="quick-planner-tokens">0</strong><i id="quick-planner-bar" style="--w: 0%"></i></div>
+                  <div><span>Executor tokens</span><strong id="quick-executor-tokens">0</strong><i id="quick-executor-bar" style="--w: 0%"></i></div>
+                  <div><span>Evaluator tokens</span><strong id="quick-evaluator-tokens">0</strong><i id="quick-evaluator-bar" style="--w: 0%"></i></div>
+                </div>
+              </section>
+              <section class="panel execution-pipeline-panel">
+                <h2>执行链路</h2>
+                <div class="pipeline">
+                  <div><span>1</span><strong>攻防任务接入</strong><small>任务情报/附件/URL/JSON</small></div>
+                  <div><span>2</span><strong>场景类型识别</strong><small>任务理解器</small></div>
+                  <div><span>3</span><strong>SSH 沙箱</strong><small>统一镜像，按任务申请工具</small></div>
+                  <div><span>4</span><strong>Agent 思考</strong><small>计划、工具、证据</small></div>
+                  <div><span>5</span><strong>成果审核</strong><small>提交前复核</small></div>
+                </div>
+              </section>
+              <section class="panel engine-budget-panel">
+                <h2>引擎预算配置</h2>
+                <p class="panel-desc">来自 <code>model_config.get_engine_config()</code>。改写请编辑 JSON 的 <code>engine</code> 段后保存模型配置。</p>
+                <pre id="engine-budget" class="doc muted">加载中…</pre>
+              </section>
+              <section class="panel env-health-panel">
+                <h2>本机工具与沙箱健康</h2>
+                <p class="panel-desc">只读：<code>SkillEnvProbe.probe_manifest()</code>。不安装依赖，结果与 run 起始 <code>ENV_CHECK</code> 同源。</p>
+                <div class="row">
+                  <button type="button" id="btn-env-check" class="primary">探测本机工具</button>
+                </div>
+                <p class="hint" id="env-status">尚未探测。</p>
+                <pre id="env-report" class="doc muted">等待探测…</pre>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="skills" id="step-skills">
+              <div class="step-heading">
+                <p class="section-kicker">Arsenal</p>
+                <h2 class="step-title">技能军火库</h2>
+                <p class="step-desc">把 Web 安全、二进制攻防、密码安全、逆向分析、取证分析、情报研判等能力做成可检索战术库。比赛中不是让用户“配置技能”，而是让 Agent 在统一沙箱中按任务申请对应打法和工具。</p>
+              </div>
+              <section class="panel skills-doc-panel">
+                <div class="skills-library-head">
+                  <div>
+                    <p class="panel-kicker">Skills Library</p>
+                    <h2>战术卡片</h2>
+                    <p class="panel-desc">顶部场景类型导航栏切换，下面展示可直接调度给 Agent 的技能卡片。每张卡片都保留打法入口、ID 复制、常用标记和候选载入动作。</p>
+                  </div>
+                  <div class="skills-library-actions">
+                    <button type="button" id="btn-skill-refresh" class="skill-toolbar-btn primary">刷新技能</button>
+                    <button type="button" id="btn-skill-pin-view" class="skill-toolbar-btn">常用筛选</button>
+                    <button type="button" id="btn-skill-export" class="skill-toolbar-btn">导出清单</button>
+                  </div>
+                </div>
+                <div class="skill-stats">
+                  <div><span>当前分类</span><strong id="skill-active-category">全部</strong><small>横向类型</small></div>
+                  <div><span>命中技能</span><strong id="skill-total-count">0</strong><small>可检索战术卡</small></div>
+                  <div><span>工具清单</span><strong id="skill-tool-count">0</strong><small>MCP / 本机工具</small></div>
+                  <div><span>常用标记</span><strong id="skill-pinned-count">0</strong><small>本场临时选择</small></div>
+                </div>
+                <div class="skill-filter-bar">
+                  <div class="skill-tabs" id="skill-category-tabs" aria-label="技能分类"></div>
+                  <div class="skill-filter-controls">
+                    <label>分类
+                      <select id="skill-category"><option value="">全部分类</option></select>
+                    </label>
+                    <label>搜索
+                      <input id="skill-search" type="search" placeholder="搜索 doc_id / 描述 / 场景类型" autocomplete="off">
+                    </label>
+                  </div>
+                </div>
+                <p class="hint" id="skill-status">正在加载技能库…</p>
+                <div id="skill-list" class="skill-card-grid scroll-list"></div>
+                <div id="skill-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="skill-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="skill-detail-title">文档</h3>
+                    <button type="button" id="btn-skill-close">关闭</button>
+                  </div>
+                  <pre id="skill-detail-body" class="doc"></pre>
+                </div>
+              </section>
+              <section class="panel skills-tool-panel">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Tool Matrix</p>
+                    <h2>工具矩阵</h2>
+                    <p class="panel-desc" id="tool-installer">按场景类型组织攻防研判工具，展示安装方式、校验项、适用链路和 Agent 调用准备度。</p>
+                  </div>
+                  <button type="button" id="btn-tool-refresh" class="skill-toolbar-btn primary">刷新工具</button>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="tool-category-tabs" aria-label="工具分类"></div>
+                  <div class="arsenal-search-slot">
+                    <span>工具按场景类型归档</span>
+                    <strong id="tool-active-category">全部</strong>
+                  </div>
+                </div>
+                <p class="hint" id="tool-status">正在加载工具矩阵…</p>
+                <div id="tool-list" class="arsenal-card-grid scroll-list"></div>
+                <div id="tool-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="tool-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="tool-detail-title">工具详情</h3>
+                    <button type="button" id="btn-tool-close">关闭</button>
+                  </div>
+                  <pre id="tool-detail-body" class="doc"></pre>
+                </div>
+              </section>
+              <section class="panel skills-sandbox-panel">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Target Sandbox</p>
+                    <h2>真实执行沙箱</h2>
+                    <p class="panel-desc">当前真实执行依赖可 SSH 的统一沙箱环境；场景类型用于筛选工具视图，不代表后端会为不同题目自动分配不同镜像。</p>
+                  </div>
+                  <button type="button" id="btn-sandbox" class="skill-toolbar-btn primary">探测沙箱运行时</button>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="sandbox-category-tabs" aria-label="沙箱场景类型"></div>
+                  <div class="arsenal-search-slot">
+                    <span>工具视图</span>
+                    <strong id="sandbox-active-category">全部</strong>
+                  </div>
+                </div>
+                <p class="hint" id="sandbox-status">正在加载沙箱矩阵…</p>
+                <div id="sandbox-report" class="arsenal-card-grid scroll-list"></div>
+                <div id="sandbox-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="sandbox-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="sandbox-detail-title">沙箱详情</h3>
+                    <button type="button" id="btn-sandbox-close">关闭</button>
+                  </div>
+                  <pre id="sandbox-detail-body" class="doc"></pre>
+                </div>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="agents" id="step-agents">
+              <div class="step-heading">
+                <p class="section-kicker">Agent War Room</p>
+                <h2 class="step-title">Agent 工作区</h2>
+                <p class="step-desc">从用户视角看，这里展示的是智能攻防研判团队：理解员读任务、规划员拆 DAG、执行员跑工具、评估员验收证据。接口状态透明，但表达成作战角色，而不是工程流程。</p>
+              </div>
+              <section class="panel agent-roles-panel">
+                <h2>Agent 作战拓扑</h2>
+                <div class="agent-map" aria-label="Agent 作战拓扑图">
+                  <div class="agent-node node-intake">
+                    <span>INTAKE</span>
+                    <strong>任务情报感知</strong>
+                    <small>Text / URL / JSON / Files</small>
+                  </div>
+                  <div class="agent-node node-understander">
+                    <span>U</span>
+                    <strong>Understander</strong>
+                    <small>场景类型识别 · 目标抽取</small>
+                  </div>
+                  <div class="agent-node node-planner">
+                    <span>P</span>
+                    <strong>Planner</strong>
+                    <small>DAG 拆解 · 技能检索</small>
+                  </div>
+                  <div class="agent-node node-executor">
+                    <span>X</span>
+                    <strong>Executor</strong>
+                    <small>Web 自动启动 VM · SSH 任务沙箱真实执行</small>
+                  </div>
+                  <div class="agent-node node-evaluator">
+                    <span>E</span>
+                    <strong>Evaluator</strong>
+                    <small>证据验收 · 反思复盘</small>
+                  </div>
+                  <div class="agent-core">
+                    <span>AGENT LOOP</span>
+                    <strong>Planning → Running → Review</strong>
+                  </div>
+                  <div class="agent-link link-a"></div>
+                  <div class="agent-link link-b"></div>
+                  <div class="agent-link link-c"></div>
+                  <div class="agent-link link-d"></div>
+                </div>
+                <div class="agent-radar-grid">
+                  <div class="radar-card"><span id="radar-understand" style="--v: 0%"></span><strong>场景类型理解</strong><small id="radar-understand-status">等待能力声明</small></div>
+                  <div class="radar-card"><span id="radar-planner" style="--v: 0%"></span><strong>规划能力</strong><small id="radar-planner-status">等待能力声明</small></div>
+                  <div class="radar-card"><span id="radar-executor" style="--v: 0%"></span><strong>执行接线</strong><small id="radar-executor-status">等待能力声明</small></div>
+                  <div class="radar-card"><span id="radar-evaluator" style="--v: 0%"></span><strong>验收链路</strong><small id="radar-evaluator-status">等待能力声明</small></div>
+                </div>
+              </section>
+              <section class="panel agent-status-panel">
+                <h2>作战角色在线状态</h2>
+                <div class="row">
+                  <button type="button" id="btn-capabilities" class="primary">刷新能力地图</button>
+                </div>
+                <p class="hint" id="cap-status">打开本页自动加载。</p>
+                <ul id="cap-list" class="cap-list"></ul>
+              </section>
+              <section class="panel">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Agent Roles</p>
+                    <h2>队伍分工矩阵</h2>
+                    <p class="panel-desc">按作战角色组织，不再按流程步骤展示；每个角色都有职责、输入输出、工具权限和接线状态。</p>
+                  </div>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="agent-role-tabs" aria-label="Agent 角色"></div>
+                  <div class="arsenal-search-slot"><span>当前角色</span><strong id="agent-role-active">全部</strong></div>
+                </div>
+                <div id="agent-role-cards" class="arsenal-card-grid scroll-list"></div>
+                <div id="agent-role-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="agent-role-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="agent-role-detail-title">角色详情</h3>
+                    <button type="button" id="btn-agent-role-close">关闭</button>
+                  </div>
+                  <pre id="agent-role-detail-body" class="doc"></pre>
+                </div>
+                <p class="panel-desc">真实 <code>Executor.run</code> / <code>Evaluator.review|step_eval|reflect|eval_goals</code> 由外部组交付后替换，引擎无需改主循环。</p>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="experience" id="step-experience">
+              <div class="step-heading">
+                <p class="section-kicker">Tactic Memory</p>
+                <h2 class="step-title">战术黑板</h2>
+                <p class="step-desc">参考 攻防智能体参考系统 的 Blackboard：比赛过程中沉淀提示词、关键线索、失败路径、工具发现与可复用打法。</p>
+              </div>
+              <section class="panel overview-wide">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Blackboard</p>
+                    <h2>队伍黑板</h2>
+                    <p class="panel-desc">按信息类型组织线索、失败路径、复用打法和人工提示，方便比赛中快速筛选与复盘。</p>
+                  </div>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="blackboard-tabs" aria-label="黑板类型"></div>
+                  <div class="arsenal-search-slot"><span>当前类型</span><strong id="blackboard-active">全部</strong></div>
+                </div>
+                <div id="blackboard-cards" class="arsenal-card-grid scroll-list"></div>
+                <div id="blackboard-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="blackboard-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="blackboard-detail-title">黑板详情</h3>
+                    <button type="button" id="btn-blackboard-close">关闭</button>
+                  </div>
+                  <pre id="blackboard-detail-body" class="doc"></pre>
+                </div>
+              </section>
+              <section class="panel reserved-panel blackboard-query-panel">
+                <h2>检索相似打法 <span class="badge reserved">未接线</span></h2>
+                <p class="panel-desc">预留 <code>POST /api/experience/query</code> → <code>ExperienceStore.query(topics, role)</code>。</p>
+                <label>topics（逗号分隔）
+                  <input id="exp-topics" type="text" placeholder="SQL注入, 文件上传" autocomplete="off">
+                </label>
+                <label>role
+                  <select id="exp-role">
+                    <option value="evaluator_plan">ep 计划评审</option>
+                    <option value="evaluator_step">ee 步骤验收</option>
+                    <option value="evaluator_task">et 任务反思</option>
+                  </select>
+                </label>
+                <div class="row">
+                  <button type="button" id="btn-exp-query" class="primary">试查（返回预留响应）</button>
+                </div>
+                <pre id="exp-query-out" class="doc muted">尚未查询。</pre>
+              </section>
+              <section class="panel reserved-panel blackboard-record-panel">
+                <h2>沉淀战术记录 <span class="badge reserved">未接线</span></h2>
+                <p class="panel-desc">预留 <code>POST /api/experience/record</code>。设计写回时机：replan / ESCALATED / FAILED。</p>
+                <label>topic<input id="exp-rec-topic" type="text" placeholder="base64" autocomplete="off"></label>
+                <label>outcome
+                  <select id="exp-rec-outcome">
+                    <option value="success">success</option>
+                    <option value="failure">failure</option>
+                  </select>
+                </label>
+                <label>summary<textarea id="exp-rec-summary" rows="3" placeholder="可执行结论摘要"></textarea></label>
+                <div class="row">
+                  <button type="button" id="btn-exp-record">试写（返回预留响应）</button>
+                </div>
+                <pre id="exp-record-out" class="doc muted">尚未写入。</pre>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="run" id="step-run">
+              <div class="step-heading">
+                <p class="section-kicker">Ops Intake</p>
+                <h2 class="step-title">攻防任务接入</h2>
+                <p class="step-desc">队员把任务情报、平台 JSON、目标 URL、附件包丢进来，系统自动识别场景类型、生成目标、派发 Agent。这里是比赛现场最核心的入口。</p>
+              </div>
+              <div class="challenge-browser-tabs" id="challenge-browser-tabs">
+                <button type="button" class="challenge-tab active" data-task-page="intake"><span>投递攻防任务</span><strong>INTAKE</strong></button>
+              </div>
+              <section class="panel run-create-panel challenge-page active" data-task-page="intake">
+                <h2>投递攻防任务</h2>
+                <p class="panel-desc">支持任务情报文本、平台/通用 JSON、目标 URL、附件（pcap/elf/zip/图/代码等）。先「解析场景类型」，确认后再启动攻防研判。</p>
+                <div class="task-console-strip">
+                  <div><span>任务总数</span><strong id="task-console-total">-</strong></div>
+                  <div><span>运行中</span><strong id="task-console-running">-</strong></div>
+                  <div><span>等待队列</span><strong id="task-console-queued">-</strong></div>
+                  <div><span>独立沙箱</span><strong id="task-console-sandbox">由 runtime / events 确认</strong></div>
+                  <div><span>成果判定</span><strong id="task-console-submit">以 submission.correct 为准</strong></div>
+                </div>
+                <div class="source-tabs" role="tablist" aria-label="任务来源">
+                  <button type="button" class="source-tab active" data-src="text">任务情报文本</button>
+                  <button type="button" class="source-tab" data-src="json">JSON 导入</button>
+                  <button type="button" class="source-tab" data-src="url">目标 URL</button>
+                  <button type="button" class="source-tab" data-src="files">附件上传</button>
+                </div>
+                <div class="sample-task-bar" id="sample-task-bar" aria-label="快速样例">
+                  <span>快速样例</span>
+                  <button type="button" data-sample="web">Web 安全</button>
+                  <button type="button" data-sample="crypto">密码安全</button>
+                  <button type="button" data-sample="binary">二进制攻防</button>
+                  <button type="button" data-sample="reverse">逆向分析</button>
+                  <button type="button" data-sample="forensics">取证分析</button>
+                </div>
+
+                <section class="platform-ingest-panel">
+                  <div class="arsenal-panel-head">
+                    <div>
+                      <p class="panel-kicker">Platform Bridge</p>
+                      <h3>平台任务库 / 本地物化任务</h3>
+                      <p class="panel-desc">对接最新平台适配器与真实任务理解器：可从平台/JSON 拉取任务，也可直接理解本地任务目录。</p>
+                    </div>
+                    <div class="row">
+                      <button type="button" id="btn-platform-status">检测平台</button>
+                      <button type="button" id="btn-platform-sync">同步索引</button>
+                    </div>
+                  </div>
+                  <div class="platform-status-grid">
+                    <div><span>平台连接</span><strong id="platform-config-status">未检测</strong><small id="platform-base-url">PLATFORM_SESSION_BASE</small></div>
+                    <div><span>任务库索引</span><strong id="platform-challenge-count">0</strong><small id="platform-store-dir">本地任务库</small></div>
+                    <div><span>附件缓存</span><strong id="platform-cache-size">0 B</strong><small id="platform-cache-count">0 files</small></div>
+                    <div><span>沙箱运行时</span><strong id="platform-sandbox-status">未检测</strong><small id="platform-sandbox-image">SANDBOX_IMAGE</small></div>
+                  </div>
+                  <div class="platform-action-grid">
+                    <label>平台任务 URL / friendly_id / JSON / 本地 JSON 路径
+                      <input id="platform-source" type="text" placeholder="https://... / web-100 / { ... } / /data/tasks/demo.json" autocomplete="off">
+                    </label>
+                    <label>物化目录（可选）
+                      <input id="platform-dest" type="text" placeholder="默认写入 PLATFORM_STORE_DIR/tasks/..." autocomplete="off">
+                    </label>
+                    <label>本地任务目录 / metadata.yml
+                      <input id="local-challenge-dir" type="text" placeholder="项目内 data/challenges/easy_rsa 或 metadata.yml" autocomplete="off">
+                    </label>
+                  </div>
+                  <div class="row">
+                    <button type="button" id="btn-platform-fetch" class="primary">拉取并识别</button>
+                    <button type="button" id="btn-local-understand">理解本地任务</button>
+                  </div>
+                  <p class="hint" id="platform-status">平台接入尚未检测。</p>
+                  <pre id="platform-out" class="doc muted hidden"></pre>
+                </section>
+
+                <div class="source-pane active" data-src="text">
+                  <label>标题<input id="task-title" type="text" value="base64 编码" autocomplete="off"></label>
+                  <label>任务情报
+                    <textarea id="task-desc" rows="5">给定一段文本，base64 编码后作为成果口令提交。</textarea>
+                  </label>
+                  <label>任务 ID / 平台编号<input id="task-cid" type="text" value="task-ui" autocomplete="off"></label>
+                  <label>额外目标 ID（可选，逗号分隔）
+                    <input id="task-goals" type="text" placeholder="默认自动生成 obtain_proof / verify_target" autocomplete="off">
+                  </label>
+                </div>
+
+                <div class="source-pane" data-src="json">
+                  <label>粘贴 平台导出 JSON
+                    <textarea id="task-json" rows="8" placeholder='{"name":"Easy RSA","category":"crypto","description":"...","files":[]}'></textarea>
+                  </label>
+                  <p class="hint">识别 name/title、description、category、files 等字段。</p>
+                </div>
+
+                <div class="source-pane" data-src="url">
+                  <label>目标地址（Web / 远程服务）
+                    <input id="task-url" type="url" placeholder="http://target.example:8080" autocomplete="off">
+                  </label>
+                  <label>补充说明（可选）
+                    <textarea id="task-url-desc" rows="3" placeholder="登录框存在 SQL 注入…"></textarea>
+                  </label>
+                </div>
+
+                <div class="source-pane" data-src="files">
+                  <label>选择附件（可多选；单文件建议 &lt; 20MB）
+                    <input id="task-files" type="file" multiple>
+                  </label>
+                  <ul id="task-file-list" class="attachment-list"></ul>
+                  <p class="hint" id="upload-status">扩展名会参与场景类型启发（如 .pcap→取证分析，.elf→二进制攻防）。</p>
+                  <label>附件任务标题（可选）<input id="task-file-title" type="text" placeholder="附件任务" autocomplete="off"></label>
+                  <label>附件说明（可选）<textarea id="task-file-desc" rows="3" placeholder="从比赛平台下载的附件包"></textarea></label>
+                </div>
+
+                <label>手动覆盖场景类型（可选，覆盖自动判定）
+                  <select id="task-type-override">
+                    <option value="">自动判定</option>
+                    <option value="ctf-web">Web 安全</option>
+                    <option value="ctf-pwn">二进制攻防</option>
+                    <option value="ctf-crypto">密码安全</option>
+                    <option value="ctf-reverse">逆向分析</option>
+                    <option value="ctf-forensics">取证分析</option>
+                    <option value="ctf-osint">情报研判</option>
+                    <option value="ctf-malware">恶意样本分析</option>
+                    <option value="ctf-misc">综合场景</option>
+                    <option value="ctf-ai-ml">AI 安全</option>
+                  </select>
+                </label>
+                <div class="create-task-grid">
+                  <label>沙箱执行方式
+                    <select id="task-execution-mode">
+                      <option value="real" selected>真实执行（自动启动 VM + SSH 沙箱）</option>
+                      <option value="demo">演示执行（MockExecutor，不运行命令）</option>
+                    </select>
+                  </label>
+                  <label>并行 Agent 数
+                    <input id="task-actors" type="number" min="1" max="8" value="1" inputmode="numeric">
+                  </label>
+                  <label>沙箱销毁策略
+                    <select disabled>
+                      <option>事件与日志保留在 Match，任务容器自动销毁</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="row">
+                  <button type="button" id="btn-parse" class="primary">识别攻防任务</button>
+                  <button type="button" id="btn-start" disabled>派发 Agent</button>
+                </div>
+                <p class="hint" id="start-hint">请先解析场景类型；判定结果会写入内部场景类型字段，供 Planner 检索技能库。</p>
+
+                <div id="type-box" class="type-box hidden">
+                  <h3>场景类型判定</h3>
+                  <div class="status-grid">
+                    <div><span>主类型</span><strong id="type-primary">-</strong></div>
+                    <div><span>置信度</span><strong id="type-confidence">-</strong></div>
+                    <div><span>goal_list</span><strong id="type-goals">-</strong></div>
+                  </div>
+                  <ol id="type-ranked" class="timeline"></ol>
+                  <div id="challenge-dossier" class="challenge-dossier"></div>
+                  <pre id="type-preview" class="doc muted"></pre>
+                </div>
+              </section>
+              <section class="panel run-live-panel challenge-page hidden" data-task-page="workspace">
+                <div class="workspace-hero">
+                  <div>
+                    <p class="panel-kicker">Agent Workspace</p>
+                    <h2 id="workspace-title">实时作战面板</h2>
+                    <p id="workspace-subtitle" class="panel-desc">派发 Agent 后，这里展示该任务的实时攻防研判过程、状态机、工具调用、证据链和可解释思考。</p>
+                  </div>
+                  <div class="workspace-live-badge"><span>LIVE</span><strong id="workspace-type-badge">OPS</strong></div>
+                </div>
+                <div class="run-switcher-block">
+                  <div class="row between">
+                    <h3>进行中 / 最近</h3>
+                    <button type="button" id="btn-active-reload">刷新</button>
+                  </div>
+                  <div id="active-runs" class="run-switcher"></div>
+                </div>
+                <div class="status-grid">
+                  <div><span>run_id</span><strong id="run-id">-</strong></div>
+                  <div><span>状态</span><strong id="run-status">-</strong></div>
+                  <div><span>执行模式</span><strong id="run-mode">-</strong></div>
+                  <div><span>运行阶段</span><strong id="run-phase">-</strong></div>
+                  <div><span>VM / SSH</span><strong id="run-runtime">-</strong></div>
+                  <div><span>当前步骤</span><strong id="run-step">-</strong></div>
+                  <div><span>tokens</span><strong id="run-tokens">0</strong></div>
+                  <div><span>运行时长</span><strong id="run-duration">-</strong></div>
+                </div>
+                <ol id="state-pills" class="state-pills" aria-label="引擎状态机"></ol>
+                <p class="hint" id="run-message">尚未启动。</p>
+                <div class="row hidden" id="run-controls">
+                  <button type="button" id="btn-stop" class="danger">停止（request_stop）</button>
+                </div>
+                <p class="fail" id="run-fail"></p>
+                <div class="ops-visual-grid">
+                  <div class="ops-card">
+                    <h3>计划 DAG</h3>
+                    <ul id="dag-list" class="dag-list"></ul>
+                  </div>
+                  <div class="ops-card">
+                    <h3>SignalBus</h3>
+                    <pre id="signal-log" class="doc muted">等待信号…</pre>
+                  </div>
+                  <div class="ops-card">
+                    <h3>events.jsonl</h3>
+                    <ol id="event-timeline" class="timeline"></ol>
+                  </div>
+                  <div class="ops-card">
+                    <h3>run.log</h3>
+                    <pre id="run-log" class="doc muted">暂无日志。</pre>
+                  </div>
+                  <div class="ops-card ops-card-wide">
+                    <h3>VM、沙箱、工具与命令输出</h3>
+                    <pre id="tool-stream" class="doc muted execution-stream">等待执行事件…</pre>
+                  </div>
+                </div>
+              </section>
+              <section class="panel workspace-panel challenge-page hidden" data-task-page="workspace">
+                <div class="workspace-section-head">
+                  <div>
+                    <h2>任务工作区 · 可解释过程</h2>
+                    <p class="panel-desc">以下内容直接投影当前 run 的 DAG、state.json 与 events.jsonl；无事件时显示空状态，不使用题型模板补造过程。</p>
+                  </div>
+                  <button type="button" id="btn-workspace-human" class="workspace-human-button" title="人工接入（预留）">
+                    <span class="workspace-human-icon" aria-hidden="true"></span>
+                    <span>人工接入</span>
+                  </button>
+                </div>
+                <div id="workspace-process-map" class="workspace-process-map"></div>
+                <div class="workspace-grid">
+                  <div class="thinking-feed">
+                    <h3>Agent 决策与验收</h3>
+                    <ol id="workspace-decisions">
+                      <li class="workspace-empty"><span>暂无决策事件</span><strong>等待 Planner、Executor 或 Evaluator 写入事件账本。</strong></li>
+                    </ol>
+                  </div>
+                  <div class="tool-status-board">
+                    <h3>实际工具状态</h3>
+                    <div id="workspace-tools-empty"><strong>暂无工具调用</strong><span class="state-pill neutral">0 calls</span><small>数据来自 use_tool / tool_result / sandbox.* 事件。</small></div>
+                    <div id="workspace-tools" class="workspace-tool-list"></div>
+                  </div>
+                  <div class="workspace-tabs">
+                    <h3>任务输入与步骤产出</h3>
+                    <pre id="workspace-outputs" class="doc muted">等待 state.json 与步骤结果…</pre>
+                    <p class="hint" id="workspace-output-note">当前后端未提供 VM 文件枚举接口；这里只展示后端已经返回的输入文件、步骤 result、observation 和 product。</p>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="audit" id="step-audit">
+              <div class="step-heading">
+                <p class="section-kicker">Evidence Delivery</p>
+                <h2 class="step-title">成果审核与证据交付</h2>
+                <p class="step-desc">参考攻防智能体参考系统的证据审核：候选成果需要解释来源、工具证据、置信度和审核动作；通过后再沉淀复盘报告与报告资产。</p>
+              </div>
+              <section class="panel audit-report-panel">
+                <h2>复盘报告 <span class="badge wired">已接线</span></h2>
+                <p class="panel-desc"><code>GET /api/runs/:id/report</code> 由 state + events.jsonl 组装 Markdown；<code>/product</code> 抽取 PASS 步骤产物。</p>
+                <label>run_id
+                  <input id="audit-run-id" type="text" placeholder="选择任务页当前 run 或粘贴" autocomplete="off">
+                </label>
+                <div class="row">
+                  <button type="button" id="btn-audit-report" class="primary">生成报告</button>
+                  <button type="button" id="btn-audit-product">查看 product</button>
+                  <button type="button" id="btn-audit-use-current">用当前 run</button>
+                </div>
+                <p class="hint" id="audit-status">尚未生成。</p>
+                <pre id="audit-report" class="doc muted">等待报告…</pre>
+                <pre id="audit-product" class="doc muted hidden"></pre>
+              </section>
+              <section class="panel reserved-panel flag-submit-panel">
+                <h2>成果提交通道 <span class="badge wired">已接平台适配器</span></h2>
+                <p class="panel-desc">默认只做本地答案库核验；勾选“真实提交到平台”后才调用平台提交接口。</p>
+                <label>成果口令<input id="flag-value" type="text" placeholder="proof{...}" autocomplete="off"></label>
+                <label>平台任务 ID / 任务别名
+                  <input id="flag-challenge-id" type="text" placeholder="可为空：尝试从 run_id 读取" autocomplete="off">
+                </label>
+                <label>关联 run_id（可选）<input id="flag-run-id" type="text" autocomplete="off"></label>
+                <label class="check-row">
+                  <input id="flag-real-submit" type="checkbox">
+                  <span>真实提交到平台</span>
+                </label>
+                <div class="row">
+                  <button type="button" id="btn-flag-verify">核验 / 提交成果口令</button>
+                </div>
+                <pre id="flag-out" class="doc muted">尚未验证。</pre>
+              </section>
+              <section class="panel review-queue-panel">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Evidence Review</p>
+                    <h2>成果审核队列</h2>
+                    <p class="panel-desc">按审核状态查看候选成果、证据链和处理动作。</p>
+                  </div>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="review-tabs" aria-label="审核状态"></div>
+                  <div class="arsenal-search-slot"><span>当前状态</span><strong id="review-active">全部</strong></div>
+                </div>
+                <div id="review-cards" class="arsenal-card-grid scroll-list"></div>
+                <div id="review-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="review-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="review-detail-title">审核详情</h3>
+                    <button type="button" id="btn-review-close">关闭</button>
+                  </div>
+                  <pre id="review-detail-body" class="doc"></pre>
+                </div>
+              </section>
+              <section class="panel reserved-panel hitl-panel">
+                <h2>人工接管席 <span class="badge reserved">前端预留</span></h2>
+                <p class="panel-desc">引擎仅有 ee escalate 判定，无人工审批闸门。预留 <code>GET /api/hitl/pending</code>、<code>POST /api/hitl/decide</code>。</p>
+                <div class="row">
+                  <button type="button" id="btn-hitl-pending">拉取待审（预留）</button>
+                </div>
+                <label>run_id<input id="hitl-run-id" type="text" autocomplete="off"></label>
+                <label>decision
+                  <select id="hitl-decision">
+                    <option value="approve">approve 继续</option>
+                    <option value="reject">reject 失败</option>
+                    <option value="replan">replan</option>
+                    <option value="manual">manual 接管</option>
+                  </select>
+                </label>
+                <div class="row">
+                  <button type="button" id="btn-hitl-decide" class="primary">提交决策（预留）</button>
+                </div>
+                <pre id="hitl-out" class="doc muted">尚未操作。</pre>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="history" id="step-history">
+              <div class="step-heading">
+                <p class="section-kicker">After Action Review</p>
+                <h2 class="step-title">赛后复盘</h2>
+                <p class="step-desc">扫描 <code>runs/</code>，把每次攻防研判变成团队资产。未终态可继续接力，终态任务可抽取路径、失败原因、Token 成本与复盘线索。</p>
+              </div>
+              <section class="panel history-panel">
+                <h2>战斗档案</h2>
+                <div class="row">
+                  <button type="button" id="btn-history-reload">刷新历史</button>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="history-tabs" aria-label="复盘状态"></div>
+                  <div class="arsenal-search-slot"><span>当前档案</span><strong id="history-active">全部</strong></div>
+                </div>
+                <div id="history-list" class="arsenal-card-grid scroll-list"></div>
+                <p class="hint" id="history-status">尚未加载。</p>
+                <div id="history-detail" class="history-detail skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="history-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="history-title">详情</h3>
+                    <button type="button" id="btn-hist-close">关闭</button>
+                  </div>
+                  <div class="status-grid">
+                    <div><span>run_id</span><strong id="hist-id">-</strong></div>
+                    <div><span>状态</span><strong id="hist-status">-</strong></div>
+                    <div><span>tokens</span><strong id="hist-tokens">0</strong></div>
+                    <div><span>步骤数</span><strong id="hist-steps">0</strong></div>
+                  </div>
+                  <pre id="hist-meta" class="doc muted"></pre>
+                  <ul id="hist-dag" class="dag-list"></ul>
+                  <ol id="hist-events" class="timeline"></ol>
+                  <pre id="hist-log" class="doc muted"></pre>
+                  <div class="row">
+                    <button type="button" id="btn-hist-focus" class="primary">在任务页关注</button>
+                    <button type="button" id="btn-hist-resume">续跑 resume</button>
+                    <button type="button" id="btn-hist-delete" class="danger">删除此记录</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="usage" id="step-usage">
+              <div class="step-heading">
+                <p class="section-kicker">Model Usage</p>
+                <h2 class="step-title">模型用量</h2>
+                <p class="step-desc">对标 攻防智能体参考系统 的模型用量页：按任务、Agent 阶段、模型策略统计 Token、成本、上下文占用和失败重试。</p>
+              </div>
+              <section class="panel overview-wide">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">Usage Ledger</p>
+                    <h2>用量总览</h2>
+                    <p class="panel-desc">按总览、阶段、模型、场景类型统计 Tokens、成本和上下文占用。</p>
+                  </div>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="usage-tabs" aria-label="用量维度"></div>
+                  <div class="arsenal-search-slot"><span>当前维度</span><strong id="usage-active">总览</strong></div>
+                </div>
+                <div id="usage-cards" class="arsenal-card-grid scroll-list"></div>
+                <div id="usage-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="usage-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="usage-detail-title">用量详情</h3>
+                    <button type="button" id="btn-usage-close">关闭</button>
+                  </div>
+                  <pre id="usage-detail-body" class="doc"></pre>
+                </div>
+              </section>
+              <section class="panel usage-stage-panel">
+                <div class="usage-chart-head">
+                  <div>
+                    <h2 id="usage-chart-title">阶段分布</h2>
+                    <p id="usage-chart-desc" class="panel-desc">按 Agent 阶段汇总 events.jsonl 中的真实模型 Tokens。</p>
+                  </div>
+                  <div class="usage-chart-tabs" id="usage-chart-tabs" role="tablist" aria-label="模型用量图表维度">
+                    <button type="button" class="usage-chart-tab active" data-usage-chart="stage" role="tab" aria-selected="true" title="按 Agent 阶段查看">
+                      <span class="usage-view-icon stage" aria-hidden="true"></span><span>阶段</span>
+                    </button>
+                    <button type="button" class="usage-chart-tab" data-usage-chart="daily" role="tab" aria-selected="false" title="按每日查看">
+                      <span class="usage-view-icon daily" aria-hidden="true"></span><span>每日</span>
+                    </button>
+                    <button type="button" class="usage-chart-tab" data-usage-chart="category" role="tab" aria-selected="false" title="按任务类型查看">
+                      <span class="usage-view-icon category" aria-hidden="true"></span><span>任务类型</span>
+                    </button>
+                  </div>
+                </div>
+                <div id="usage-stage-view" class="usage-chart-view" role="tabpanel">
+                  <div class="usage-bars">
+                    <div><span class="usage-role-label"><b class="usage-role-icon planner" aria-hidden="true">P</b>Planner</span><strong id="usage-planner-tokens">0</strong><i id="usage-planner-bar" style="--w: 0%"></i></div>
+                    <div><span class="usage-role-label"><b class="usage-role-icon executor" aria-hidden="true">E</b>Executor</span><strong id="usage-executor-tokens">0</strong><i id="usage-executor-bar" style="--w: 0%"></i></div>
+                    <div><span class="usage-role-label"><b class="usage-role-icon evaluator" aria-hidden="true">V</b>Evaluator</span><strong id="usage-evaluator-tokens">0</strong><i id="usage-evaluator-bar" style="--w: 0%"></i></div>
+                    <div><span class="usage-role-label"><b class="usage-role-icon other" aria-hidden="true">+</b>其他角色</span><strong id="usage-other-tokens">0</strong><i id="usage-other-bar" style="--w: 0%"></i></div>
+                  </div>
+                </div>
+                <div id="usage-daily-view" class="usage-chart-view hidden" role="tabpanel">
+                  <div class="usage-daily-summary"><strong id="usage-daily-total">0</strong><span>近 7 日 Tokens</span></div>
+                  <div id="usage-daily-chart" class="usage-daily-chart" aria-label="每日模型用量柱状图"></div>
+                </div>
+                <div id="usage-category-view" class="usage-chart-view hidden" role="tabpanel">
+                  <div class="usage-category-layout">
+                    <div id="usage-category-donut" class="usage-category-donut" aria-label="任务类型模型用量环形图">
+                      <div><strong id="usage-category-total">0</strong><span>Tokens</span></div>
+                    </div>
+                    <div id="usage-category-legend" class="usage-category-legend"></div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="mcp" id="step-mcp">
+              <div class="step-heading">
+                <p class="section-kicker">MCP Tools</p>
+                <h2 class="step-title">MCP 工具</h2>
+                <p class="step-desc">展示后端当前公开的能力声明。后端尚未提供 MCP 注册表时，本页会明确显示未接入，不再用静态卡片模拟在线服务。</p>
+              </div>
+              <section class="panel overview-wide">
+                <div class="arsenal-panel-head">
+                  <div>
+                    <p class="panel-kicker">MCP Registry</p>
+                    <h2>工具连接状态</h2>
+                    <p class="panel-desc">数据来自 <code>/api/capabilities</code>；实际工具目录请在“战术与工具库”查看。</p>
+                  </div>
+                </div>
+                <div class="skill-filter-bar arsenal-filter-bar">
+                  <div class="skill-tabs" id="mcp-tabs" aria-label="MCP 类型"></div>
+                  <div class="arsenal-search-slot"><span>当前类型</span><strong id="mcp-active">全部</strong></div>
+                </div>
+                <div id="mcp-cards" class="arsenal-card-grid scroll-list"></div>
+                <div id="mcp-detail" class="doc-viewer skill-detail-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="mcp-detail-title">
+                  <div class="doc-viewer-header">
+                    <h3 id="mcp-detail-title">MCP 详情</h3>
+                    <button type="button" id="btn-mcp-close">关闭</button>
+                  </div>
+                  <pre id="mcp-detail-body" class="doc"></pre>
+                </div>
+              </section>
+            </div>
+
+            <div class="wizard-step" data-step="user" id="step-user">
+              <div class="step-heading">
+                <p class="section-kicker">User & Team</p>
+                <h2 class="step-title">用户管理</h2>
+                <p class="step-desc">当前只有浏览器内的本地界面门禁与外观偏好，后端没有用户、成员、权限或登录审计接口。</p>
+              </div>
+              <section class="panel">
+                <h2>队伍资料</h2>
+                <div class="user-grid">
+                  <div><span>当前队伍</span><strong id="profile-team">demo-team</strong><small>比赛队伍</small></div>
+                  <div><span>身份来源</span><strong id="profile-auth-source">浏览器本地</strong><small>未经过服务端身份验证</small></div>
+                  <div><span>成员与权限</span><strong>后端未提供</strong><small>不展示模拟成员数或管理员角色</small></div>
+                  <div><span>登录审计</span><strong>未接入</strong><small>当前没有服务端审计记录</small></div>
+                </div>
+              </section>
+              <section class="panel">
+                <h2>偏好设置</h2>
+                <div class="appearance-grid">
+                  <button type="button" class="theme-card active" data-theme="light"><strong>中台浅色</strong><small>适合长时间比赛和赞助展示</small></button>
+                  <button type="button" class="theme-card" data-theme="dark"><strong>夜间作战</strong><small>深色低眩光模式</small></button>
+                  <button type="button" class="theme-card" data-theme="dense"><strong>高密度</strong><small>更多任务和工具状态同屏展示</small></button>
+                </div>
+                <p class="hint" id="theme-status">当前：中台浅色</p>
+              </section>
+            </div>
+          </div>
+
+          <div class="wizard-footer">
+            <button type="button" id="btn-step-prev" class="wizard-step-btn" disabled>上一步</button>
+            <p class="wizard-step-indicator" id="wizard-step-indicator">第 1 / 7 步</p>
+            <button type="button" id="btn-step-next" class="wizard-step-btn primary">下一步</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script src="/app.js?v=20260829-usage-views"></script>
+  </body>
+</html>
